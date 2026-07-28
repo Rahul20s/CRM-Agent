@@ -37,7 +37,8 @@ class PipedriveConnector(CRMConnector):
                     fields.append({
                         "name": field.get("name", ""),
                         "key": field.get("key", ""),
-                        "field_type": field.get("field_type", "")
+                        "field_type": field.get("field_type", ""),
+                        "is_custom": field.get("edit_flag", False)
                     })
             return fields
         except Exception as e:

@@ -47,12 +47,13 @@ def initialize():
     field_map = load_field_map(connector)
     print(f"[Startup] Field map built: {len(field_map)} fields discovered")
 
-    # Step 2: Get all field names for LLM
-    field_names = get_all_field_names(connector)
-    print(f"[Startup] Field names: {field_names}")
+    # Step 2: Get separated custom vs built-in field names
+    custom_fields, builtin_fields = get_all_field_names(connector)
+    print(f"[Startup] Custom fields: {custom_fields}")
+    print(f"[Startup] Built-in fields: {builtin_fields}")
 
-    # Step 3: Ask LLM to create semantic mapping
-    semantic_map = create_semantic_map(field_names)
+    # Step 3: Ask LLM to create semantic mapping (custom fields prioritized)
+    semantic_map = create_semantic_map(custom_fields, builtin_fields)
     print(f"[Startup] Semantic map: {json.dumps(semantic_map, indent=2)}")
 
     # Step 4: Cache everything
