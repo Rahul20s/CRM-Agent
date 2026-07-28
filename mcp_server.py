@@ -38,34 +38,45 @@ def get_crm_schema() -> str:
     
     return json.dumps(context, indent=2)
 
+from thefuzz import fuzz
+
 @mcp.tool()
-def query_crm_deals(filters: dict) -> str:
+def query_crm_deals(filters: dict, requesting_user_role: str = "admin") -> str:
     """
     Query CRM deals using dictionary filters. Use __not suffix for exclusion.
+    Includes basic Role-Based Access Control (RBAC) and Fuzzy Semantic matching.
     """
     filters_dict = filters if filters else {}
         
     data = load_data()
     deals = data.get("deals", [])
     
-    filtered_deals = []
+    # 1. RBAC (Security Layer): Block non-admins from seeing High value deals
+    authorized_deals = []
     for deal in deals:
+        if requesting_user_role != "admin" and deal.get("value_usd", 0) > 100000:
+            continue # Unauthorized
+        authorized_deals.append(deal)
+    
+    filtered_deals = []
+    for deal in authorized_deals:
         match = True
         for key, value in filters_dict.items():
             if key.endswith("__not"):
                 actual_key = key.replace("__not", "")
-                # Normalize text for comparison
                 deal_val = str(deal.get(actual_key, "")).lower()
+                query_val = str(value).lower()
                 
-                # Check for partial match or exact match to be safe
-                if str(value).lower() in deal_val:
+                # Fuzzy semantic match for exclusion
+                if fuzz.partial_ratio(query_val, deal_val) > 80:
                     match = False
                     break
             else:
                 deal_val = str(deal.get(key, "")).lower()
-                # Partial match to handle typos like 'gari' matching 'garima' or vice-versa is complex, 
-                # but we'll do simple substring matching to simulate robustness
-                if str(value).lower() not in deal_val and deal_val not in str(value).lower():
+                query_val = str(value).lower()
+                
+                # Fuzzy semantic match for inclusion
+                if fuzz.partial_ratio(query_val, deal_val) < 70:
                     match = False
                     break
         if match:

@@ -3,3 +3,5 @@ openai
 mcp
 fastmcp
 python-dotenv
+thefuzz
+Levenshtein
