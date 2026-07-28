@@ -89,12 +89,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("#### About")
     st.info("Enterprise Translation Layer. Allows non-technical executives to query messy, unstructured CRM databases using natural language.")
-    
-    st.markdown("---")
-    st.markdown("#### ⚡ Quick Prompts")
-    q1 = st.button("How many active deals does Garima own?")
-    q2 = st.button("What is the total value of Ishan's won deals?")
-    q3 = st.button("Which high priority deals do we have?")
 
 # Check for API Key
 if not os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY") == "your_nvidia_api_key_here":
@@ -112,11 +106,6 @@ for message in st.session_state.messages:
 
 # Get user input
 prompt = st.chat_input("Enter your natural language query...")
-
-# Check if quick prompts were clicked
-if q1: prompt = "How many active deals does Garima own?"
-if q2: prompt = "What is the total value of Ishan's won deals?"
-if q3: prompt = "Which high priority deals do we have?"
 
 # React to user input
 if prompt:
