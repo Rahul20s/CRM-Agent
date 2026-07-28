@@ -1,187 +1,174 @@
-from fastmcp import FastMCP
+# MCP Server — Schema-Driven Architecture
+# This is the heart of the application. It:
+#   1. Discovers schema from ANY CRM connector (Pipedrive today, HubSpot tomorrow)
+#   2. Uses LLM ONCE to create semantic field mappings
+#   3. Caches everything
+#   4. Normalizes all deals into universal format
+#   5. Exposes only clean, normalized data to the AI
+
 import json
 import os
-import requests
 from dotenv import load_dotenv
+from fastmcp import FastMCP
 from thefuzz import fuzz
+
+# Import the modular architecture
+from crm.pipedrive import PipedriveConnector
+from semantic.schema_loader import load_field_map, get_all_field_names
+from semantic.semantic_mapper import create_semantic_map
+from semantic.normalizer import normalize_deals
+from semantic import cache
 
 load_dotenv()
 
 # Initialize FastMCP server
 mcp = FastMCP("TreelifeCRM")
 
-# ─── DYNAMIC FIELD MAPPING ───────────────────────────────────────────
-# Fetches custom field definitions from Pipedrive so we never hardcode field keys.
-# This means if the CRM schema changes, the agent adapts automatically.
+# ─── STARTUP: Schema Discovery & Semantic Mapping ───────────────────
+# This runs ONCE. The LLM maps fields once, then it's cached forever.
 
-def get_field_mapping():
+def initialize():
     """
-    Fetches all custom deal fields from Pipedrive and creates a
-    human-readable-name -> hash-key mapping.
+    Startup flow:
+      1. Connect to CRM
+      2. Fetch field definitions (GET /dealFields)
+      3. Build field_map (human name → hash key)
+      4. Ask LLM to create semantic_map (concept → human name)
+      5. Cache both maps
     """
-    api_key = os.getenv("PIPEDRIVE_API_KEY")
-    if not api_key:
-        return {}
-    
-    url = f"https://api.pipedrive.com/v1/dealFields?api_token={api_key}"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        
-        field_map = {}
-        if data.get("success") and data.get("data"):
-            for field in data["data"]:
-                field_map[field["name"]] = field["key"]
-        return field_map
-    except Exception as e:
-        print(f"Error fetching field definitions: {e}")
-        return {}
+    if cache.is_initialized():
+        return
+
+    print("[Startup] Initializing schema discovery...")
+
+    connector = PipedriveConnector()
+
+    # Step 1: Build field map
+    field_map = load_field_map(connector)
+    print(f"[Startup] Field map built: {len(field_map)} fields discovered")
+
+    # Step 2: Get all field names for LLM
+    field_names = get_all_field_names(connector)
+    print(f"[Startup] Field names: {field_names}")
+
+    # Step 3: Ask LLM to create semantic mapping
+    semantic_map = create_semantic_map(field_names)
+    print(f"[Startup] Semantic map: {json.dumps(semantic_map, indent=2)}")
+
+    # Step 4: Cache everything
+    cache.store(field_map, semantic_map)
+    print("[Startup] Initialization complete.")
+
 
 def load_data():
     """
-    Fetches live deals from Pipedrive API and maps custom field hash-keys
-    back to human-readable names.
+    Fetches live deals and normalizes them using cached mappings.
+    Returns normalized deals that the LLM can understand universally.
     """
-    api_key = os.getenv("PIPEDRIVE_API_KEY")
-    if not api_key:
-        print("Warning: PIPEDRIVE_API_KEY not found in .env")
-        return {"fields_schema": {}, "deals": []}
-    
-    # Step 1: Get field mapping (human name -> hash key)
-    field_map = get_field_mapping()
-    
-    # Step 2: Fetch all deals (handle pagination)
-    all_raw_deals = []
-    start = 0
-    while True:
-        url = f"https://api.pipedrive.com/v1/deals?api_token={api_key}&start={start}&limit=500"
-        try:
-            response = requests.get(url)
-            data = response.json()
-            
-            if data.get("success") and data.get("data"):
-                all_raw_deals.extend(data["data"])
-                
-                # Check if there are more pages
-                pagination = data.get("additional_data", {}).get("pagination", {})
-                if pagination.get("more_items_in_collection"):
-                    start = pagination.get("next_start", start + 500)
-                else:
-                    break
-            else:
-                break
-        except Exception as e:
-            print(f"Error fetching deals: {e}")
-            break
-    
-    # Step 3: Normalize each deal using the field mapping
-    deals = []
-    for d in all_raw_deals:
-        deal = {
-            "deal_id": d.get(field_map.get("Deal ID", ""), d.get("id")),
-            "title": d.get("title", ""),
-            "official_owner": d.get(field_map.get("Official Owner", ""), None),
-            "Lead_Owner": d.get(field_map.get("Lead Owner", ""), ""),
-            "CRM_Status": d.get(field_map.get("CRM Status", ""), ""),
-            "folder_name": d.get(field_map.get("Folder Name", ""), ""),
-            "priority_tag": d.get(field_map.get("Priority Tag", ""), ""),
-            "value_usd": d.get("value", 0)
-        }
-        deals.append(deal)
-    
-    # Step 4: Build dynamic schema
-    fields_schema = {
-        "deal_id": "Unique identifier for the deal",
-        "title": "Name of the deal",
-        "official_owner": "The built-in CRM owner field (often left blank)",
-        "Lead_Owner": "Custom field where the team actually types the owner's name",
-        "CRM_Status": "Custom CRM status (Active, Won, Lost, Closed)",
-        "folder_name": "The folder the deal is placed in (In Progress, Negotiation, Dead Leads, etc.)",
-        "priority_tag": "Custom tag for priority (High, Low, Critical, Urgent, etc.)",
-        "value_usd": "Estimated deal value"
-    }
-    
-    return {
-        "fields_schema": fields_schema,
-        "deals": deals
-    }
+    # Ensure initialized
+    initialize()
 
+    connector = PipedriveConnector()
+    field_map = cache.get_field_map()
+    semantic_map = cache.get_semantic_map()
+
+    # Fetch raw deals from CRM
+    raw_deals = connector.get_deals()
+
+    # Normalize using the two-layer mapping
+    deals = normalize_deals(raw_deals, field_map, semantic_map)
+
+    return {"deals": deals}
+
+
+# ─── MCP TOOLS ───────────────────────────────────────────────────────
 
 @mcp.tool()
 def get_crm_schema() -> str:
     """
-    Returns the schema of the CRM, including field names, their descriptions, 
-    and unique values for categorical fields to help understand the actual data structure.
+    Returns the LIVE schema of the CRM, including unique values for each field.
+    This is called dynamically — never hardcoded.
     """
     data = load_data()
-    schema = data.get("fields_schema", {})
     deals = data.get("deals", [])
-    
-    # Extract unique values for context
-    unique_folders = list(set([d.get("folder_name") for d in deals if d.get("folder_name")]))
-    unique_statuses = list(set([d.get("CRM_Status") for d in deals if d.get("CRM_Status")]))
-    unique_lead_owners = list(set([d.get("Lead_Owner") for d in deals if d.get("Lead_Owner")]))
-    unique_priorities = list(set([d.get("priority_tag") for d in deals if d.get("priority_tag")]))
-    
+
+    # Extract unique values for every normalized field
+    unique_values = {}
+    for concept in ["owner", "status", "folder", "priority", "organization"]:
+        values = list(set([
+            str(d.get(concept, ""))
+            for d in deals
+            if d.get(concept) is not None and str(d.get(concept)).strip() != ""
+        ]))
+        unique_values[f"unique_{concept}s"] = values
+
+    # Build schema description from semantic map
+    semantic_map = cache.get_semantic_map() or {}
+    schema_fields = {}
+    for concept, field_name in semantic_map.items():
+        if field_name:
+            schema_fields[concept] = f"Mapped from CRM field: '{field_name}'"
+
     context = {
-        "fields": schema,
-        "unique_folders_found": unique_folders,
-        "unique_statuses_found": unique_statuses,
-        "unique_lead_owners_found": unique_lead_owners,
-        "unique_priorities_found": unique_priorities,
+        "fields": schema_fields,
+        **unique_values,
         "total_records": len(deals)
     }
-    
+
     return json.dumps(context, indent=2)
 
 
 @mcp.tool()
 def query_crm_deals(filters: dict, requesting_user_role: str = "admin") -> str:
     """
-    Query CRM deals using dictionary filters. Use __not suffix for exclusion.
-    Includes basic Role-Based Access Control (RBAC) and Fuzzy Semantic matching.
+    Query normalized CRM deals using dictionary filters.
+    Uses universal field names (owner, priority, status, folder, etc.)
+    Use __not suffix for exclusion.
+    Includes RBAC and Fuzzy Semantic matching.
     """
     filters_dict = filters if filters else {}
-        
+
     data = load_data()
     deals = data.get("deals", [])
-    
-    # 1. RBAC (Security Layer): Block non-admins from seeing High value deals
+
+    # 1. RBAC (Security Layer)
     authorized_deals = []
     for deal in deals:
-        if requesting_user_role != "admin" and deal.get("value_usd", 0) > 100000:
-            continue # Unauthorized
+        val = deal.get("value", 0)
+        if val is None:
+            val = 0
+        if requesting_user_role != "admin" and val > 100000:
+            continue
         authorized_deals.append(deal)
-    
+
+    # 2. Fuzzy Semantic Filtering
     filtered_deals = []
     for deal in authorized_deals:
         match = True
         for key, value in filters_dict.items():
             if key.endswith("__not"):
                 actual_key = key.replace("__not", "")
-                deal_val = str(deal.get(actual_key, "")).lower()
+                deal_val = str(deal.get(actual_key, "") or "").lower()
                 query_val = str(value).lower()
-                
-                # Fuzzy semantic match for exclusion
+
                 if fuzz.partial_ratio(query_val, deal_val) > 80:
                     match = False
                     break
             else:
-                deal_val = str(deal.get(key, "")).lower()
+                deal_val = str(deal.get(key, "") or "").lower()
                 query_val = str(value).lower()
-                
-                # Fuzzy semantic match for inclusion
+
                 if fuzz.partial_ratio(query_val, deal_val) < 70:
                     match = False
                     break
         if match:
             filtered_deals.append(deal)
-            
+
     return json.dumps({
         "result_count": len(filtered_deals),
         "deals": filtered_deals
     }, indent=2)
 
+
 if __name__ == "__main__":
-    # Start the MCP server using standard input/output (stdio)
     mcp.run()
