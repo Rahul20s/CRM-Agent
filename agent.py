@@ -47,10 +47,11 @@ Here is the current schema and sample context of the client's CRM data:
 Instructions:
 1. Look at the user's question.
 2. Determine which fields in the messy CRM schema actually represent what they are asking for.
-3. You MUST use the `query_crm_deals` function to fetch the data. Do NOT output raw JSON in your text response. Call the tool natively using the API!
+3. CLARIFICATION WORKFLOW: If the user's terminology (e.g., "leads", "in progress") is ambiguous and could map to multiple fields (like status vs folder_name), DO NOT GUESS. Ask the user a clarifying question before searching.
+4. You MUST use the `query_crm_deals` function to fetch the data. Do NOT output raw JSON in your text response. Call the tool natively using the API!
    - For active deals, exclude Dead Leads by passing {{"folder_name__not": "Dead Leads"}} in the filters dictionary.
    - For owner, map it to the actual custom field used (e.g. Lead_Owner).
-4. Once you get the result from the tool, give the user the final answer. Explain which messy fields you mapped the question to, and why.
+5. Once you get the result from the tool, give the user the final answer. Explain which messy fields you mapped the question to, and why.
 """
 
     # 4. Define the tool for the LLM
