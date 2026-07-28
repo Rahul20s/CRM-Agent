@@ -5,3 +5,4 @@ fastmcp
 python-dotenv
 thefuzz
 Levenshtein
+requests

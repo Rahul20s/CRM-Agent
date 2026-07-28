@@ -1,17 +1,52 @@
 from fastmcp import FastMCP
 import json
 import os
+import requests
+from dotenv import load_dotenv
+from fastmcp import FastMCP
+
+load_dotenv()
 
 # Initialize FastMCP server
 mcp = FastMCP("TreelifeCRM")
 
-DATA_FILE = "crm_data.json"
-
 def load_data():
-    if not os.path.exists(DATA_FILE):
+    api_key = os.getenv("PIPEDRIVE_API_KEY")
+    if not api_key:
+        print("Warning: PIPEDRIVE_API_KEY not found in .env")
         return {"fields_schema": {}, "deals": []}
-    with open(DATA_FILE, 'r') as f:
-        return json.load(f)
+        
+    url = f"https://api.pipedrive.com/v1/deals?api_token={api_key}"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        
+        deals = []
+        if data.get("success") and "data" in data and data["data"]:
+            for d in data["data"]:
+                deals.append({
+                    "deal_id": d.get("id"),
+                    "title": d.get("title", d.get("name", "")),
+                    "Lead_Owner": d.get("owner_name", ""),
+                    "status": d.get("status", "open"),
+                    "folder_name": f"Pipeline {d.get('pipeline_id', 1)}",
+                    "value_usd": d.get("value", 0)
+                })
+        
+        return {
+            "fields_schema": {
+                "deal_id": "Unique identifier for the Pipedrive deal",
+                "title": "Name of the deal",
+                "Lead_Owner": "Owner of the deal",
+                "status": "Current status (open, won, lost)",
+                "folder_name": "Pipeline ID",
+                "value_usd": "Value of the deal"
+            },
+            "deals": deals
+        }
+    except Exception as e:
+        print(f"Error fetching from Pipedrive: {e}")
+        return {"fields_schema": {}, "deals": []}
 
 @mcp.tool()
 def get_crm_schema() -> str:

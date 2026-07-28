@@ -49,13 +49,12 @@ async def ask_treelife_agent(user_question: str):
     # Define a static schema since we are bypassing the MCP server dynamic schema fetch for stability
     crm_schema_text = """
     Deals Schema:
-    - id (int)
-    - deal_name (str)
-    - Lead_Owner (str) - Custom field used for owner
-    - official_owner (str) - Usually empty
-    - status (str) - Official status (often outdated)
-    - folder_name (str) - Where the deal is stored (e.g. 'In Progress', 'Dead Leads')
-    - value (int)
+    - deal_id (int): Unique identifier for the Pipedrive deal
+    - title (str): Name of the deal
+    - Lead_Owner (str): Owner of the deal
+    - status (str): Current status (open, won, lost)
+    - folder_name (str): Pipeline ID
+    - value_usd (float): Value of the deal
     """
     
     # 3. Create the System Prompt for the LLM
