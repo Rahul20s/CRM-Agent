@@ -72,6 +72,16 @@ Instructions:
    - For active deals, exclude Dead Leads by passing {{"folder_name__not": "Dead Leads"}} in the filters dictionary.
    - For owner, map it to the actual custom field used (e.g. Lead_Owner).
 5. Once you get the result from the tool, give the user the final answer. Explain which messy fields you mapped the question to, and why.
+6. EXECUTIVE SUMMARY WORKFLOW: If the user asks for a general review, audit, executive summary, or expresses that they are taking over the team and need a summary, you MUST fetch all data and structure your response with exactly the following sections:
+   - Executive summary
+   - Biggest deals
+   - High-priority opportunities
+   - Duplicate organizations
+   - Missing fields
+   - Inconsistent owner names
+   - Inconsistent priorities/statuses
+   - Deals needing immediate review
+   - Recommended cleanup actions
 """
 
     # 4. Define the tool for the LLM
