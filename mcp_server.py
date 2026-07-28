@@ -3,56 +3,115 @@ import json
 import os
 import requests
 from dotenv import load_dotenv
-from fastmcp import FastMCP
+from thefuzz import fuzz
 
 load_dotenv()
 
 # Initialize FastMCP server
 mcp = FastMCP("TreelifeCRM")
 
-def load_data():
+# ─── DYNAMIC FIELD MAPPING ───────────────────────────────────────────
+# Fetches custom field definitions from Pipedrive so we never hardcode field keys.
+# This means if the CRM schema changes, the agent adapts automatically.
+
+def get_field_mapping():
+    """
+    Fetches all custom deal fields from Pipedrive and creates a
+    human-readable-name -> hash-key mapping.
+    """
     api_key = os.getenv("PIPEDRIVE_API_KEY")
     if not api_key:
-        print("Warning: PIPEDRIVE_API_KEY not found in .env")
-        return {"fields_schema": {}, "deals": []}
-        
-    url = f"https://api.pipedrive.com/v1/deals?api_token={api_key}"
+        return {}
+    
+    url = f"https://api.pipedrive.com/v1/dealFields?api_token={api_key}"
     try:
         response = requests.get(url)
         data = response.json()
         
-        deals = []
-        if data.get("success") and "data" in data and data["data"]:
-            for d in data["data"]:
-                deals.append({
-                    "deal_id": d.get("id"),
-                    "title": d.get("title", d.get("name", "")),
-                    "Lead_Owner": d.get("owner_name", ""),
-                    "status": d.get("status", "open"),
-                    "folder_name": f"Pipeline {d.get('pipeline_id', 1)}",
-                    "value_usd": d.get("value", 0)
-                })
-        
-        return {
-            "fields_schema": {
-                "deal_id": "Unique identifier for the Pipedrive deal",
-                "title": "Name of the deal",
-                "Lead_Owner": "Owner of the deal",
-                "status": "Current status (open, won, lost)",
-                "folder_name": "Pipeline ID",
-                "value_usd": "Value of the deal"
-            },
-            "deals": deals
-        }
+        field_map = {}
+        if data.get("success") and data.get("data"):
+            for field in data["data"]:
+                field_map[field["name"]] = field["key"]
+        return field_map
     except Exception as e:
-        print(f"Error fetching from Pipedrive: {e}")
+        print(f"Error fetching field definitions: {e}")
+        return {}
+
+def load_data():
+    """
+    Fetches live deals from Pipedrive API and maps custom field hash-keys
+    back to human-readable names.
+    """
+    api_key = os.getenv("PIPEDRIVE_API_KEY")
+    if not api_key:
+        print("Warning: PIPEDRIVE_API_KEY not found in .env")
         return {"fields_schema": {}, "deals": []}
+    
+    # Step 1: Get field mapping (human name -> hash key)
+    field_map = get_field_mapping()
+    
+    # Step 2: Fetch all deals (handle pagination)
+    all_raw_deals = []
+    start = 0
+    while True:
+        url = f"https://api.pipedrive.com/v1/deals?api_token={api_key}&start={start}&limit=500"
+        try:
+            response = requests.get(url)
+            data = response.json()
+            
+            if data.get("success") and data.get("data"):
+                all_raw_deals.extend(data["data"])
+                
+                # Check if there are more pages
+                pagination = data.get("additional_data", {}).get("pagination", {})
+                if pagination.get("more_items_in_collection"):
+                    start = pagination.get("next_start", start + 500)
+                else:
+                    break
+            else:
+                break
+        except Exception as e:
+            print(f"Error fetching deals: {e}")
+            break
+    
+    # Step 3: Normalize each deal using the field mapping
+    deals = []
+    for d in all_raw_deals:
+        deal = {
+            "deal_id": d.get(field_map.get("Deal ID", ""), d.get("id")),
+            "title": d.get("title", ""),
+            "official_owner": d.get(field_map.get("Official Owner", ""), None),
+            "Lead_Owner": d.get(field_map.get("Lead Owner", ""), ""),
+            "CRM_Status": d.get(field_map.get("CRM Status", ""), ""),
+            "folder_name": d.get(field_map.get("Folder Name", ""), ""),
+            "priority_tag": d.get(field_map.get("Priority Tag", ""), ""),
+            "value_usd": d.get("value", 0)
+        }
+        deals.append(deal)
+    
+    # Step 4: Build dynamic schema
+    fields_schema = {
+        "deal_id": "Unique identifier for the deal",
+        "title": "Name of the deal",
+        "official_owner": "The built-in CRM owner field (often left blank)",
+        "Lead_Owner": "Custom field where the team actually types the owner's name",
+        "CRM_Status": "Custom CRM status (Active, Won, Lost, Closed)",
+        "folder_name": "The folder the deal is placed in (In Progress, Negotiation, Dead Leads, etc.)",
+        "priority_tag": "Custom tag for priority (High, Low, Critical, Urgent, etc.)",
+        "value_usd": "Estimated deal value"
+    }
+    
+    return {
+        "fields_schema": fields_schema,
+        "deals": deals
+    }
+
 
 @mcp.tool()
 def get_crm_schema() -> str:
     """
     Returns the schema of the CRM, including field names, their descriptions, 
-    and unique values for categorical fields like 'folder_name' or 'status' to help understand the actual data structure.
+    and unique values for categorical fields to help understand the actual data structure.
     """
     data = load_data()
     schema = data.get("fields_schema", {})
@@ -60,20 +119,21 @@ def get_crm_schema() -> str:
     
     # Extract unique values for context
     unique_folders = list(set([d.get("folder_name") for d in deals if d.get("folder_name")]))
-    unique_statuses = list(set([d.get("status") for d in deals if d.get("status")]))
+    unique_statuses = list(set([d.get("CRM_Status") for d in deals if d.get("CRM_Status")]))
     unique_lead_owners = list(set([d.get("Lead_Owner") for d in deals if d.get("Lead_Owner")]))
+    unique_priorities = list(set([d.get("priority_tag") for d in deals if d.get("priority_tag")]))
     
     context = {
         "fields": schema,
         "unique_folders_found": unique_folders,
         "unique_statuses_found": unique_statuses,
         "unique_lead_owners_found": unique_lead_owners,
+        "unique_priorities_found": unique_priorities,
         "total_records": len(deals)
     }
     
     return json.dumps(context, indent=2)
 
-from thefuzz import fuzz
 
 @mcp.tool()
 def query_crm_deals(filters: dict, requesting_user_role: str = "admin") -> str:

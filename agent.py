@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 # Import the tools directly to bypass Windows asyncio subprocess issues
-from mcp_server import query_crm_deals
+from mcp_server import query_crm_deals, get_crm_schema
 
 load_dotenv()
 
@@ -46,22 +46,14 @@ async def ask_treelife_agent(user_question: str):
     if "BLOCK" in guardrail_status.upper():
         return "🛡️ **Guardrail Alert:** I am a CRM Data Assistant. I am restricted to querying and summarizing deal data. I cannot process this request."
     
-    # Define a static schema since we are bypassing the MCP server dynamic schema fetch for stability
-    crm_schema_text = """
-    Deals Schema:
-    - deal_id (int): Unique identifier for the Pipedrive deal
-    - title (str): Name of the deal
-    - Lead_Owner (str): Owner of the deal
-    - status (str): Current status (open, won, lost)
-    - folder_name (str): Pipeline ID
-    - value_usd (float): Value of the deal
-    """
+    # Dynamically fetch the live schema from Pipedrive (never hardcoded)
+    crm_schema_text = get_crm_schema()
     
     # 3. Create the System Prompt for the LLM
     system_prompt = f"""You are Treelife AI, a smart semantic data translation layer.
 Your job is to answer the user's question about their CRM data accurately, even if their data is messy.
 
-Here is the current schema and sample context of the client's CRM data:
+Here is the LIVE schema and context of the client's CRM data (fetched dynamically from Pipedrive):
 {crm_schema_text}
 
 Instructions:
@@ -96,7 +88,7 @@ Instructions:
                     "properties": {
                         "filters": {
                             "type": "object",
-                            "description": "A dictionary of filters. e.g. {\"Lead_Owner\": \"Garima\", \"folder_name__not\": \"Dead Leads\"}"
+                            "description": "A dictionary of filters. Available fields: deal_id, title, official_owner, Lead_Owner, CRM_Status, folder_name, priority_tag, value_usd. Use __not suffix for exclusion. e.g. {\"Lead_Owner\": \"Garima\", \"folder_name__not\": \"Dead Leads\", \"CRM_Status\": \"Active\"}"
                         }
                     },
                     "required": ["filters"]
