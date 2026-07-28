@@ -1,0 +1,5 @@
+streamlit
+openai
+mcp
+fastmcp
+python-dotenv
