@@ -4,6 +4,7 @@
 
 import json
 import os
+import hashlib
 from dotenv import load_dotenv
 from thefuzz import fuzz
 
@@ -18,15 +19,15 @@ load_dotenv()
 
 def initialize():
     """
-    Runs ONCE at startup:
+    Production startup flow:
       1. Fetch field definitions from CRM
-      2. Build field_map
-      3. LLM creates semantic_map
-      4. Fetch all deals from CRM
-      5. Normalize deals
-      6. Cache EVERYTHING (mappings + deals + schema text)
-    
-    After this, ZERO API calls are made per user query.
+      2. Compute schema hash
+      3. If hash matches cached version → load from disk (NO LLM call)
+      4. If hash changed or no cache → call LLM, save to disk
+      5. Fetch and normalize deals
+      6. Cache everything in memory
+
+    Result: LLM is called ONLY when the CRM schema changes.
     """
     if cache.is_initialized():
         return
@@ -34,19 +35,42 @@ def initialize():
     print("[Startup] Initializing schema discovery...")
     connector = PipedriveConnector()
 
-    # Step 1: Build field map
-    field_map = load_field_map(connector)
+    # Use API key hash as account identifier (stable across sessions)
+    api_key = os.getenv("PIPEDRIVE_API_KEY", "default")
+    account_id = hashlib.md5(api_key.encode()).hexdigest()[:12]
+
+    # Step 1: Fetch field definitions
+    raw_fields = connector.get_field_definitions()
+    field_map = {}
+    for field in raw_fields:
+        name = field.get("name", "")
+        key = field.get("key", "")
+        if name and key:
+            field_map[name] = key
     print(f"[Startup] Field map: {len(field_map)} fields")
 
-    # Step 2: Separate custom vs built-in fields
-    custom_fields, builtin_fields = get_all_field_names(connector)
-    print(f"[Startup] Custom: {custom_fields}")
+    # Step 2: Compute schema hash
+    schema_hash = cache.compute_schema_hash(raw_fields)
+    print(f"[Startup] Schema hash: {schema_hash}")
 
-    # Step 3: LLM semantic mapping (called ONCE, then cached)
-    semantic_map = create_semantic_map(custom_fields, builtin_fields)
-    print(f"[Startup] Semantic map: {json.dumps(semantic_map, indent=2)}")
+    # Step 3: Check persistent cache
+    if cache.has_cached_mapping(account_id, schema_hash):
+        # Schema unchanged → load from disk, skip LLM entirely
+        print("[Startup] Schema unchanged. Loading cached mappings from disk...")
+        field_map_cached, semantic_map = cache.load_from_disk(account_id)
+        field_map = field_map_cached
+    else:
+        # Schema changed or first run → call LLM
+        print("[Startup] New schema detected. Calling LLM for semantic mapping...")
+        custom_fields, builtin_fields = get_all_field_names(connector)
+        print(f"[Startup] Custom: {custom_fields}")
+        semantic_map = create_semantic_map(custom_fields, builtin_fields)
+        print(f"[Startup] Semantic map: {json.dumps(semantic_map, indent=2)}")
 
-    # Step 4: Cache the mappings
+        # Save to disk for future restarts
+        cache.save_to_disk(account_id, field_map, semantic_map, schema_hash)
+
+    # Step 4: Load into memory
     cache.store(field_map, semantic_map)
 
     # Step 5: Fetch and normalize ALL deals
