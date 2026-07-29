@@ -5,7 +5,6 @@
 import json
 import os
 from dotenv import load_dotenv
-from fastmcp import FastMCP
 from thefuzz import fuzz
 
 from crm.pipedrive import PipedriveConnector
@@ -15,8 +14,6 @@ from semantic.normalizer import normalize_deals
 from semantic import cache
 
 load_dotenv()
-
-mcp = FastMCP("TreelifeCRM")
 
 
 def initialize():
@@ -84,14 +81,12 @@ def initialize():
 
 # ─── MCP TOOLS (all read from cache, zero API calls) ─────────────────
 
-@mcp.tool()
 def get_crm_schema() -> str:
     """Returns the cached LIVE schema. No API calls."""
     initialize()
     return cache.get_schema_text() or "{}"
 
 
-@mcp.tool()
 def query_crm_deals(filters: dict, requesting_user_role: str = "admin") -> str:
     """
     Query normalized CRM deals from cache.
@@ -137,6 +132,3 @@ def query_crm_deals(filters: dict, requesting_user_role: str = "admin") -> str:
         "deals": filtered_deals
     }, indent=2)
 
-
-if __name__ == "__main__":
-    mcp.run()

@@ -1,8 +1,5 @@
 streamlit
 openai
-mcp
-fastmcp
-pydantic-settings
 python-dotenv
 thefuzz
 Levenshtein
