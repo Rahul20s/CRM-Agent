@@ -28,6 +28,7 @@ CRITICAL RULES:
 - "status" and "folder" are COMPLETELY SEPARATE CONCEPTS. "Dead Leads" is a FOLDER, not a status. "Active" is a STATUS, not a folder. Never mix them.
 - When the user asks about "custom fields" or "detected fields", refer to the "detected_custom_fields" list in the schema above. Those are the actual CRM field names (e.g., "Lead Owner", "Priority Tag"), NOT the normalized concepts (e.g., "owner", "priority").
 - When counting deals for a specific owner, list each deal you counted with its exact stored owner value so the user can verify.
+- OWNER VARIANT TRANSPARENCY: When you find deals belonging to a person, group and display ALL the exact name variants stored in the CRM with their counts. For example, instead of saying "Garima has 12 deals", say: "I found 12 deals that appear to belong to Garima after normalizing owner names. Variants detected: Garima (6), GARIMA (1), garima (1), gari (1), Garim (1), Garima S. (1). These variants likely refer to the same salesperson and should be standardized." This makes it clear the AI is inferring the names belong together, not claiming they are definitively the same.
 
 Instructions:
 1. Look at the user's question.
