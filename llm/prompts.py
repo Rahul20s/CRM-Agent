@@ -14,15 +14,20 @@ Here is the LIVE schema and context of the client's CRM data (fetched dynamicall
 {schema_context}
 
 IMPORTANT: The deal data has been normalized into universal field names:
-- "owner" = the person who owns/manages the deal
+- "owner" = the person who owns/manages the deal (original CRM field name varies per account)
 - "priority" = urgency/importance tag
-- "status" = lifecycle status (Active, Won, Lost, Closed, etc.)
-- "folder" = the pipeline folder (In Progress, Negotiation, Dead Leads, etc.)
+- "status" = lifecycle status (Active, Won, Lost, Closed, etc.) — THIS IS DIFFERENT FROM FOLDER
+- "folder" = the pipeline folder/category (In Progress, Negotiation, Dead Leads, Review, Closed, etc.) — THIS IS DIFFERENT FROM STATUS
 - "deal_name" = title of the deal
 - "deal_id" = unique identifier
 - "official_owner" = secondary/system owner field
 - "value" = monetary deal value
 - "organization" = company/org name
+
+CRITICAL RULES:
+- "status" and "folder" are COMPLETELY SEPARATE CONCEPTS. "Dead Leads" is a FOLDER, not a status. "Active" is a STATUS, not a folder. Never mix them.
+- When the user asks about "custom fields" or "detected fields", refer to the "detected_custom_fields" list in the schema above. Those are the actual CRM field names (e.g., "Lead Owner", "Priority Tag"), NOT the normalized concepts (e.g., "owner", "priority").
+- When counting deals for a specific owner, list each deal you counted with its exact stored owner value so the user can verify.
 
 Instructions:
 1. Look at the user's question.

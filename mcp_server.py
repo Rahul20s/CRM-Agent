@@ -71,6 +71,7 @@ def initialize():
 
     schema_text = json.dumps({
         "fields": schema_fields,
+        "detected_custom_fields": [name for name in field_map.keys() if len(name) < 30 and not name.startswith("Source") and field_map[name] != name],
         **unique_values,
         "total_records": len(deals)
     }, indent=2)
@@ -121,7 +122,7 @@ def query_crm_deals(filters: dict, requesting_user_role: str = "admin") -> str:
             else:
                 deal_val = str(deal.get(key, "") or "").lower()
                 query_val = str(value).lower()
-                if fuzz.partial_ratio(query_val, deal_val) < 70:
+                if fuzz.partial_ratio(query_val, deal_val) < 80:
                     match = False
                     break
         if match:
